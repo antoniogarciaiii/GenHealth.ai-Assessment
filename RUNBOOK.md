@@ -1,6 +1,6 @@
 # On-Call Runbook: DME Order Intake
 
-**Dashboard:** `https://<host>/`  **Health:** `https://<host>/healthz`  **Logs:** Railway → service → Deployments → Logs
+**Dashboard:** `https://intake.antoniogarciaiii.com/`  **Health:** `https://intake.antoniogarciaiii.com/healthz`  **Logs:** Railway → service → Deployments → Logs
 
 ## Alert: "Run Failed"
 
@@ -13,13 +13,14 @@ A run used up all of its retries. This is a system problem, not a document probl
    |---|---|---|
    | `AuthenticationError` / 401 from Anthropic | API key revoked or out of credit | Update `ANTHROPIC_API_KEY` or add credit at console.anthropic.com |
    | `RateLimitError` / 529 `overloaded` | Anthropic is busy | Usually clears up by itself, so just replay. If it persists, set `ANTHROPIC_MODEL` to a fallback model |
-   | `APIError` 403 from Sheets | The Sheet isn't shared with the service account | Share the Sheet with the `client_email` as an Editor |
+   | `Apps Script writer error: unauthorized` | Secret mismatch | Make `SHEETS_WEBHOOK_SECRET` (Railway) match the `SHARED_SECRET` script property |
+   | `Apps Script returned non-JSON` / 401 / 403 | The web app deployment has the wrong access setting, or its authorization lapsed | Apps Script → Deploy → Manage deployments: Execute as Me, access Anyone; re-authorize |
    | `APIError` 429 from Sheets | Google write quota | Wait about a minute, then replay |
-   | `SMTPAuthenticationError` | Gmail app password revoked | Create a new app password and update `GMAIL_APP_PASSWORD` |
+   | `Email relay error` / MailApp quota | Gmail's daily send quota was reached, or the script needs re-authorizing | Wait for the quota to reset, or run `doPost` once in the editor to re-authorize |
    | database / connection errors | Postgres is down | Check Railway → Postgres service status |
 
 3. Replay the run. It reuses the stored PDF and won't create a duplicate row:
-   `curl -X POST https://<host>/runs/<run_id>/replay -H "X-API-Key: $INGEST_API_KEY"`
+   `curl -X POST https://intake.antoniogarciaiii.com/runs/<run_id>/replay -H "X-API-Key: $INGEST_API_KEY"`
 4. Confirm the run shows **Recorded** on the dashboard.
 
 ## Alert: "Document Review"

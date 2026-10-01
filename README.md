@@ -2,20 +2,20 @@
 
 Inbound DME order documents (PDF) are turned into structured, deduplicated records in Google Sheets, with team notifications, failure alerts and a public status dashboard.
 
-- **Inbound webhook:** `POST https://<host>/ingest` (header `X-API-Key`)
-- **Email channel:** send a PDF attachment to the intake Gmail inbox. A Zapier Zap forwards it to the same webhook.
-- **Status dashboard:** `https://<host>/` (public; patient identifiers are masked)
+- **Inbound webhook:** `POST https://intake.antoniogarciaiii.com/ingest` (header `X-API-Key`)
+- **Email channel:** email a PDF attachment to **antoniogarciaiii+dme@gmail.com**. A Zapier Zap (Gmail "New Email Matching Search" → Webhooks POST) forwards it to the same webhook as `?channel=email`. Zapier checks the inbox about every 2 minutes.
+- **Status dashboard:** https://intake.antoniogarciaiii.com/ (public; patient identifiers are masked)
 - **System of record:** Google Sheet, tab `Orders` (read-only link shared separately)
 
 ## How to trigger it
 
 ```bash
 # multipart upload (recommended)
-curl -X POST https://<host>/ingest -H "X-API-Key: <key>" -F "file=@order.pdf"
+curl -X POST https://intake.antoniogarciaiii.com/ingest -H "X-API-Key: <key>" -F "file=@order.pdf"
 
 # also accepted: raw body, JSON with a URL, or JSON with base64
-curl -X POST https://<host>/ingest -H "X-API-Key: <key>" -H "Content-Type: application/pdf" --data-binary @order.pdf
-curl -X POST https://<host>/ingest -H "X-API-Key: <key>" -H "Content-Type: application/json" \
+curl -X POST https://intake.antoniogarciaiii.com/ingest -H "X-API-Key: <key>" -H "Content-Type: application/pdf" --data-binary @order.pdf
+curl -X POST https://intake.antoniogarciaiii.com/ingest -H "X-API-Key: <key>" -H "Content-Type: application/json" \
      -d '{"file_url":"https://.../order.pdf"}'
 ```
 
@@ -88,6 +88,19 @@ Processing usually takes a few seconds. Follow `status_url` to watch the run.
 
 The first live run recorded the order, but the notification email failed: Railway blocks outbound SMTP on non-Pro plans. I found this through the pipeline's own run event log. The order was still recorded, and the notification failure was logged against the run rather than failing it. The fix was to relay email through the same authenticated Apps Script endpoint, which also removed the Gmail app password from the deployment entirely.
 
+## Verified behavior (live)
+
+| Test | Result |
+|---|---|
+| Sample fax PDF via webhook | `SUCCESS`: written to the Sheet in about 16s, with 7 review flags (invalid signature date 2/30/24, conflicting visit dates, implausible DOB, and others) |
+| Same PDF re-sent via webhook | `DUPLICATE`, linked to the original run, with no LLM call |
+| Same PDF emailed (Zapier channel) | `DUPLICATE` across channels |
+| A PDF that isn't an order | `NEEDS_REVIEW` plus an alert email |
+| A non-PDF file | `REJECTED` (HTTP 415) plus an alert email |
+| An invalid API key during local testing | Run-level retries 1→2→3, then `FAILED` plus an alert; a manual replay succeeded |
+
+On the sample, the extractor chose the **prescriber who signed the order** (Arjun Raj, DPM, NPI 9182734556) over the referring physician (Gregory House MD). For date of service it used the visit date (2024-02-24), because the signature date is impossible.
+
 ## Status meanings
 
 | Status | Meaning | Action |
@@ -107,6 +120,7 @@ The first live run recorded the order, but the notification email failed: Railwa
 - Build an evaluation set of real orders (scans, handwriting, multi-page documents) to measure accuracy whenever the prompt or model changes.
 - Add multi-tenant config: per-client Sheets or CRMs, field mappings and notification lists, so a new client is a config row instead of a code change.
 - Add a dead-letter view on the dashboard with one-click replay (behind login).
+- Process every PDF in a multi-attachment email. The Zap currently forwards only the first attachment; the fix is a Zapier Looping step or a direct Gmail API integration.
 - Move the email channel off Zapier to a direct Gmail API push or an inbound-parse service, to cut a vendor dependency (see the caveat below).
 
 ## What breaks first at 100x volume
