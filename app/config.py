@@ -38,7 +38,8 @@ def google_service_account_info() -> dict | None:
     return json.loads(raw)
 
 
-# Email (Gmail SMTP with an app password)
+# Email: relayed through the Apps Script web app (MailApp) by default; EMAIL_TRANSPORT=smtp to use Gmail SMTP
+EMAIL_TRANSPORT = _env("EMAIL_TRANSPORT", "apps_script")
 GMAIL_USER = _env("GMAIL_USER")
 GMAIL_APP_PASSWORD = _env("GMAIL_APP_PASSWORD")
 NOTIFY_EMAIL_TO = [e.strip() for e in (_env("NOTIFY_EMAIL_TO", GMAIL_USER or "") or "").split(",") if e.strip()]

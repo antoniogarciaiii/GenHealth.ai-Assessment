@@ -7,6 +7,7 @@
  * Setup: Extensions > Apps Script > paste this > Project Settings > Script Properties:
  *   SHARED_SECRET = <same value as SHEETS_WEBHOOK_SECRET in Railway>
  * Deploy > New deployment > Web app > Execute as: Me, Who has access: Anyone > copy the /exec URL.
+ * Also relays notification emails (action: "email") because Railway blocks outbound SMTP on non-Pro plans.
  */
 const TAB = 'Orders';
 const HEADERS = ['Order ID', 'Received At', 'Channel', 'Patient First Name', 'Patient Last Name', 'Patient DOB',
@@ -18,6 +19,14 @@ function doPost(e) {
   try { body = JSON.parse(e.postData.contents); } catch (err) { return out({ ok: false, error: 'bad_json' }); }
   const secret = PropertiesService.getScriptProperties().getProperty('SHARED_SECRET');
   if (!secret || body.secret !== secret) return out({ ok: false, error: 'unauthorized' });
+
+  // Email relay: the host platform blocks outbound SMTP, so notifications are sent as the Sheet owner via MailApp.
+  if (body.action === 'email') {
+    if (!body.to || !body.subject) return out({ ok: false, error: 'missing_email_fields' });
+    MailApp.sendEmail({ to: String(body.to), subject: String(body.subject), body: String(body.body || '') });
+    return out({ ok: true, sent: true, remaining_quota: MailApp.getRemainingDailyQuota() });
+  }
+
   if (!Array.isArray(body.values) || !body.values[0]) return out({ ok: false, error: 'missing_values' });
 
   const lock = LockService.getScriptLock();

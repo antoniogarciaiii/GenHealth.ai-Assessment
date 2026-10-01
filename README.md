@@ -56,7 +56,7 @@ Processing usually takes a few seconds. Follow `status_url` to watch the run.
 | Email intake channel | Zapier (Gmail → Webhooks by Zapier) | The Gmail login (OAuth) and inbox polling are commodity glue. Zapier does that well, and it hands off to the same `/ingest` endpoint, so every channel shares one pipeline. |
 | Document understanding | Claude (`claude-sonnet-5-5`, configurable) | Claude reads PDFs natively (text and scanned images), so no separate OCR step is needed. A strict JSON contract is followed by validation in code. |
 | System of record | Google Sheets, written through a small Apps Script web app (`apps_script/Code.gs`) | The business-facing record, easy to share read-only. The Apps Script writer runs as the Sheet owner, so no long-lived service-account key exists. Google's Secure-by-Default policy blocks those keys, and avoiding them is better practice anyway. The writer serializes appends with a lock and ignores an Order ID it has already written, which makes the Sheet itself idempotent too. A gspread/service-account path remains as an alternative. |
-| Notifications and alerts | Gmail SMTP | New-order notices go to the team. Failure and review alerts go to on-call. |
+| Notifications and alerts | Gmail, sent via the Apps Script relay (`MailApp`) | New-order notices go to the team. Failure and review alerts go to on-call. |
 
 ## Reliability design
 
@@ -83,6 +83,10 @@ Processing usually takes a few seconds. Follow `status_url` to watch the run.
 - The webhook requires an `X-API-Key` header, compared in constant time. Only PDFs are accepted (checked by their `%PDF` header), with a 10 MB limit.
 - The public dashboard and API mask patient identifiers: first initial, last-name initial, and DOB year only. Notification emails contain initials only and link to the access-controlled Sheet.
 - PDFs are stored in Postgres so failed runs can be replayed. In production they would go to encrypted object storage with a retention policy, and all vendors would be under a BAA.
+
+## A deployment lesson
+
+The first live run recorded the order, but the notification email failed: Railway blocks outbound SMTP on non-Pro plans. I found this through the pipeline's own run event log. The order was still recorded, and the notification failure was logged against the run rather than failing it. The fix was to relay email through the same authenticated Apps Script endpoint, which also removed the Gmail app password from the deployment entirely.
 
 ## Status meanings
 
@@ -133,7 +137,7 @@ app/pipeline.py  intake + idempotency, durable queue workers, processing state m
 app/extract.py   Claude extraction prompt, normalization, validation
 app/sheets.py    Google Sheets writer (Apps Script web app, or service account)
 apps_script/     Code.gs for the Sheet-bound writer web app
-app/notify.py    Gmail notifications and alerts
+app/notify.py    Email notifications + alerts (Apps Script relay; SMTP fallback)
 app/retry.py     exponential backoff + jitter
 app/views.py     dashboard + run detail pages (PHI masking)
 RUNBOOK.md       on-call guide

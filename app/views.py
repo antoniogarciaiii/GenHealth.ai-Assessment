@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from jinja2 import Environment
+from markupsafe import Markup
 
 from . import config
 
@@ -195,7 +196,7 @@ RUN = env.from_string("""<!doctype html><html lang="en"><head><meta charset="utf
 
 def render_dashboard(*, runs, stats, last_ok, last_fail, stuck, status_filter):
     health = "bad" if (stats["failed"] or stuck) else ("warn" if stats["review"] else "ok")
-    return DASHBOARD.render(css=BASE_CSS, runs=runs, stats=stats, last_ok=last_ok, last_fail=last_fail,
+    return DASHBOARD.render(css=Markup(BASE_CSS), runs=runs, stats=stats, last_ok=last_ok, last_fail=last_fail,
                             stuck=stuck, status_filter=status_filter, health=health)
 
 
@@ -206,5 +207,5 @@ def render_run(r):
             e["t"] = _tz(datetime.fromisoformat(e["t"]))
         except Exception:
             pass
-    return RUN.render(css=BASE_CSS, r=r, m=STATUS_META.get(r["status"], ("muted", r["status"])),
+    return RUN.render(css=Markup(BASE_CSS), r=r, m=STATUS_META.get(r["status"], ("muted", r["status"])),
                       f=mask_fields(r.get("extracted")), events=events)
