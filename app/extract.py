@@ -25,9 +25,10 @@ Rules:
 - Extract only what is explicitly present in the document. Never guess or invent values.
 - If a field is missing or illegible, use null (never an empty string, never a placeholder).
 - Dates must be ISO format YYYY-MM-DD. If a date is ambiguous or illegible, use null.
-- "ordering_provider" is the physician/practitioner who ordered or signed the order (name + credentials, e.g. "Jane Doe, MD"). Not the patient, not the DME supplier.
+- "ordering_provider" is the practitioner who prescribed/signed the order (the "Prescriber"/"Ordering Physician", name + credentials, e.g. "Jane Doe, MD"). If a different "Referring Physician" also appears, do NOT use them as ordering provider; mention them in warnings only if roles are unclear. Not the patient, not the DME supplier.
 - "equipment_requested" is a concise description of the item(s) ordered (include HCPCS codes in hcpcs_codes if present).
-- "date_of_service": use an explicit "date of service"/"DOS" if present. Otherwise use the order/prescription date and set date_of_service_basis to "order_date". If neither exists, null.
+- "date_of_service": priority order -> (1) an explicitly labeled "Date of Service"/"DOS"; (2) the clinical visit/encounter date that supports the order; (3) the prescriber's signature/order date. Set date_of_service_basis accordingly ("explicit_dos" | "visit_date" | "order_date"). Never output an impossible calendar date (e.g. Feb 30) - skip that source and use the next one.
+- "warnings": list every data-quality problem a human should know about, e.g. impossible dates (quote them as written, e.g. "Signature date '2/30/24' is not a valid date"), conflicting values for the same field (e.g. two different visit dates), implausible ages, missing signature, illegible fields, multiple patients in one document. Empty list if none.
 - "is_dme_order": true only if the document is actually an order/prescription for medical equipment or supplies.
 - Output ONLY the raw JSON object. No markdown, no code fences, no commentary.
 
@@ -42,8 +43,9 @@ JSON shape:
   "equipment_requested": string | null,
   "hcpcs_codes": [string],
   "date_of_service": "YYYY-MM-DD" | null,
-  "date_of_service_basis": "explicit_dos" | "order_date" | null,
+  "date_of_service_basis": "explicit_dos" | "visit_date" | "order_date" | null,
   "physician_signature_present": true | false,
+  "warnings": [string],
   "notes": string | null
 }"""
 
@@ -109,7 +111,8 @@ def _fake_extract(pdf_bytes: bytes) -> dict:
     return {"is_dme_order": True, "patient_first_name": first, "patient_last_name": last,
             "patient_dob": "1975-05-14", "ordering_provider": "Jane Smith, MD", "provider_npi": None,
             "equipment_requested": "CPAP machine", "hcpcs_codes": ["E0601"], "date_of_service": "2026-09-30",
-            "date_of_service_basis": "explicit_dos", "physician_signature_present": True, "notes": None}
+            "date_of_service_basis": "explicit_dos", "physician_signature_present": True,
+            "warnings": ["Signature date '2/30/24' is not a valid date"] if "WARN" in body else [], "notes": None}
 
 
 def extract(pdf_bytes: bytes, log) -> dict:
@@ -160,8 +163,21 @@ def normalize(raw: dict) -> tuple[dict, list[str]]:
         "date_of_service": _norm_date(raw.get("date_of_service")),
         "date_of_service_basis": raw.get("date_of_service_basis"),
         "physician_signature_present": bool(raw.get("physician_signature_present")),
+        "warnings": [str(w) for w in (raw.get("warnings") or []) if w],
         "notes": raw.get("notes"),
     }
+    # code-side sanity checks (don't trust the model alone)
+    for k in ("patient_dob", "date_of_service"):
+        if raw.get(k) and not f[k]:
+            f["warnings"].append(f"{k} value '{raw.get(k)}' is not a valid date")
+    if f["patient_dob"]:
+        age = (date.today() - date.fromisoformat(f["patient_dob"])).days // 365
+        if age > 110:
+            f["warnings"].append(f"Implausible patient age ({age}) from DOB {f['patient_dob']}")
+        if f["date_of_service"] and f["date_of_service"] < f["patient_dob"]:
+            f["warnings"].append("Date of service is before date of birth")
+    if raw.get("is_dme_order") is not False and not f["physician_signature_present"]:
+        f["warnings"].append("No prescriber signature detected")
     problems = []
     if raw.get("is_dme_order") is False:
         problems.append("Document does not appear to be a DME order")

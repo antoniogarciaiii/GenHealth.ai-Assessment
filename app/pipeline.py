@@ -83,8 +83,9 @@ def submit(pdf: bytes, filename: str | None, channel: str) -> dict:
 # ---------------------------------------------------------------- processing
 
 def _content_key(f: dict) -> str:
-    parts = [f["patient_first_name"], f["patient_last_name"], f["patient_dob"],
-             f["date_of_service"], f["equipment_requested"]]
+    # Prefer structured HCPCS codes over free-text equipment so LLM wording drift can't defeat dedupe
+    equip = ",".join(sorted(f.get("hcpcs_codes") or [])) or f["equipment_requested"]
+    parts = [f["patient_first_name"], f["patient_last_name"], f["patient_dob"], f["date_of_service"], equip]
     norm = "|".join(" ".join(str(p).lower().split()) for p in parts)
     return hashlib.sha256(norm.encode()).hexdigest()
 
@@ -152,7 +153,8 @@ def process(run: dict):
                 order_id, received, run["channel"], fields["patient_first_name"], fields["patient_last_name"],
                 fields["patient_dob"], fields["ordering_provider"], fields.get("provider_npi") or "",
                 fields["equipment_requested"], ", ".join(fields.get("hcpcs_codes") or []),
-                fields["date_of_service"], fields.get("date_of_service_basis") or "", run.get("filename") or "",
+                fields["date_of_service"], fields.get("date_of_service_basis") or "",
+                "; ".join(fields.get("warnings") or []), run.get("filename") or "",
                 f"{config.PUBLIC_BASE_URL}/runs/{run_id}",
             ], log=elog)
             with db.conn() as c:
@@ -160,8 +162,10 @@ def process(run: dict):
             elog(f"Recorded in Google Sheet row {sheet_row}")
         link = sheets.row_url(sheet_row) if sheets.enabled() else f"{config.PUBLIC_BASE_URL}/runs/{run_id}"
 
-        _finish(run_id, "SUCCESS", order_id=order_id, sheet_url=link, error=None)
-        elog(f"SUCCESS: {order_id}")
+        warn = fields.get("warnings") or []
+        _finish(run_id, "SUCCESS", order_id=order_id, sheet_url=link,
+                error=("Review flags: " + "; ".join(warn)) if warn else None)
+        elog(f"SUCCESS: {order_id}" + (f" with {len(warn)} review flag(s)" if warn else ""))
 
         # 5. Notify (a notification failure doesn't undo a recorded order; it is logged + visible)
         try:

@@ -146,6 +146,7 @@ DASHBOARD = env.from_string("""<!doctype html><html lang="en"><head><meta charse
 <td>{{ f.date_of_service or '—' }}</td><td>{{ r.duration_ms|dur }}</td>
 <td><a href="/runs/{{ r.id }}">{{ r.order_id or r.id }}</a>
 {% if r.error and r.status != 'SUCCESS' %}<div class="err">{{ r.error[:140] }}</div>{% endif %}
+{% if r.status == 'SUCCESS' and f.warnings %}<div><span class="pill warn">{{ f.warnings|length }} flag{{ 's' if f.warnings|length > 1 }}</span></div>{% endif %}
 {% if r.duplicate_of %}<div class="sub">dup of <a href="/runs/{{ r.duplicate_of }}">{{ r.duplicate_of }}</a></div>{% endif %}</td></tr>
 {% else %}<tr><td colspan="10" class="sub">No runs yet.</td></tr>{% endfor %}
 </tbody></table></div>
@@ -169,7 +170,7 @@ RUN = env.from_string("""<!doctype html><html lang="en"><head><meta charset="utf
 {% if r.order_id %}<dt>Order ID</dt><dd class="mono">{{ r.order_id }}</dd>{% endif %}
 {% if r.sheet_url and r.status=='SUCCESS' %}<dt>System of record</dt><dd><a href="{{ r.sheet_url }}" target="_blank">Open row in Google Sheet ↗</a></dd>{% endif %}
 {% if r.duplicate_of %}<dt>Duplicate of</dt><dd><a href="/runs/{{ r.duplicate_of }}">{{ r.duplicate_of }}</a></dd>{% endif %}
-{% if r.error %}<dt>{{ 'Note' if r.status=='SUCCESS' else 'Reason' }}</dt><dd class="err" style="max-width:none">{{ r.error }}</dd>{% endif %}
+{% if r.error and r.status != 'SUCCESS' %}<dt>Reason</dt><dd class="err" style="max-width:none">{{ r.error }}</dd>{% endif %}
 </dl></div>
 <div class="card"><h2>Extracted fields <span class="sub">(identifiers masked)</span></h2>
 {% if f %}<dl>
@@ -178,8 +179,9 @@ RUN = env.from_string("""<!doctype html><html lang="en"><head><meta charset="utf
 <dt>Date of birth</dt><dd>{{ f.patient_dob or '—' }}</dd>
 <dt>Ordering provider</dt><dd>{{ f.ordering_provider or '—' }}{% if f.provider_npi %} · NPI {{ f.provider_npi }}{% endif %}</dd>
 <dt>Equipment</dt><dd>{{ f.equipment_requested or '—' }}{% if f.hcpcs_codes %} <span class="mono">({{ f.hcpcs_codes|join(', ') }})</span>{% endif %}</dd>
-<dt>Date of service</dt><dd>{{ f.date_of_service or '—' }}{% if f.date_of_service_basis == 'order_date' %} <span class="sub">(from order date)</span>{% endif %}</dd>
+<dt>Date of service</dt><dd>{{ f.date_of_service or '—' }}{% if f.date_of_service_basis and f.date_of_service_basis != 'explicit_dos' %} <span class="sub">(from {{ f.date_of_service_basis|replace('_',' ') }})</span>{% endif %}</dd>
 <dt>Signature present</dt><dd>{{ 'Yes' if f.physician_signature_present else 'No / unclear' }}</dd>
+{% if f.warnings %}<dt>Review flags</dt><dd><ul style="margin:0;padding-left:18px">{% for w in f.warnings %}<li style="color:var(--warn)">{{ w }}</li>{% endfor %}</ul></dd>{% endif %}
 {% if f.notes %}<dt>Notes</dt><dd>{{ f.notes }}</dd>{% endif %}
 </dl>{% else %}<div class="sub">No extraction for this run.</div>{% endif %}</div>
 </div>

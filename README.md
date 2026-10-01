@@ -55,7 +55,7 @@ Processing usually takes a few seconds. Follow `status_url` to watch the run.
 | Run log, idempotency keys, durable queue | Postgres (Railway) | Unique constraints make deduplication atomic even when two copies arrive at the same moment. The queue survives restarts and redeploys. |
 | Email intake channel | Zapier (Gmail → Webhooks by Zapier) | The Gmail login (OAuth) and inbox polling are commodity glue. Zapier does that well, and it hands off to the same `/ingest` endpoint, so every channel shares one pipeline. |
 | Document understanding | Claude (`claude-sonnet-5-5`, configurable) | Claude reads PDFs natively (text and scanned images), so no separate OCR step is needed. A strict JSON contract is followed by validation in code. |
-| System of record | Google Sheets | The business-facing record. Easy to share read-only. |
+| System of record | Google Sheets, written through a small Apps Script web app (`apps_script/Code.gs`) | The business-facing record, easy to share read-only. The Apps Script writer runs as the Sheet owner, so no long-lived service-account key exists. Google's Secure-by-Default policy blocks those keys, and avoiding them is better practice anyway. The writer serializes appends with a lock and ignores an Order ID it has already written, which makes the Sheet itself idempotent too. A gspread/service-account path remains as an alternative. |
 | Notifications and alerts | Gmail SMTP | New-order notices go to the team. Failure and review alerts go to on-call. |
 
 ## Reliability design
@@ -67,6 +67,7 @@ Processing usually takes a few seconds. Follow `status_url` to watch the run.
 - **Retries with backoff at two levels.**
   - Call level: every external call (Claude, Sheets, SMTP) retries transient errors (429, 5xx, timeouts) up to 4 times with exponential backoff and jitter.
   - Run level: if a run still fails, it is rescheduled in Postgres (30s → 60s → 120s, `MAX_RUN_ATTEMPTS=4`) before it becomes `FAILED`. Because the schedule lives in Postgres, it survives restarts.
+- **The Sheet is idempotent too.** The Apps Script writer won't write an Order ID twice, so a retry after a timeout (where the write actually succeeded) can't duplicate a row.
 - **Partial-failure safety.** A replayed run reuses its existing order row and only redoes the steps that didn't finish. It never writes a second Sheet row.
 - **Crash recovery.** Runs left `PROCESSING` by a restart or redeploy are re-queued at boot, and a janitor thread checks for them every minute.
 - **Monitoring and alerting.**
@@ -130,7 +131,8 @@ uvicorn app.main:app --reload
 app/main.py      HTTP routes: /ingest, /, /runs/{id}, /runs/{id}/replay, /api/runs, /healthz
 app/pipeline.py  intake + idempotency, durable queue workers, processing state machine
 app/extract.py   Claude extraction prompt, normalization, validation
-app/sheets.py    Google Sheets writer (auto-creates headers)
+app/sheets.py    Google Sheets writer (Apps Script web app, or service account)
+apps_script/     Code.gs for the Sheet-bound writer web app
 app/notify.py    Gmail notifications and alerts
 app/retry.py     exponential backoff + jitter
 app/views.py     dashboard + run detail pages (PHI masking)

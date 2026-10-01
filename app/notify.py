@@ -51,6 +51,7 @@ Ordering provider:   {fields.get('ordering_provider')}
 Equipment:           {fields.get('equipment_requested')}
 Date of service:     {fields.get('date_of_service')}
 Channel:             {run.get('channel')}
+Review flags:        {'; '.join(fields.get('warnings') or []) or 'none'}
 
 Open the record:     {sheet_link}
 Pipeline run:        {config.PUBLIC_BASE_URL}/runs/{run['id']}

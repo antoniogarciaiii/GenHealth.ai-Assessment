@@ -22,6 +22,9 @@ ANTHROPIC_MODEL = _env("ANTHROPIC_MODEL", "claude-sonnet-5-5")
 # Google Sheets (system of record)
 GOOGLE_SHEET_ID = _env("GOOGLE_SHEET_ID")
 SHEET_TAB = _env("SHEET_TAB", "Orders")
+# Preferred: Apps Script web app writer (no service-account key needed)
+SHEETS_WEBHOOK_URL = _env("SHEETS_WEBHOOK_URL")
+SHEETS_WEBHOOK_SECRET = _env("SHEETS_WEBHOOK_SECRET")
 
 
 def google_service_account_info() -> dict | None:
